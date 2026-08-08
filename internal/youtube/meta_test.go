@@ -2,7 +2,7 @@ package youtube
 
 import "testing"
 
-func TestFormatMusicFileName(t *testing.T) {
+func TestFormatFileName(t *testing.T) {
 	cases := []struct {
 		meta TrackMeta
 		want string
@@ -16,8 +16,16 @@ func TestFormatMusicFileName(t *testing.T) {
 			want: "Daft Punk - Get Lucky",
 		},
 		{
+			meta: TrackMeta{Artist: "Daft Punk", Title: "Daft Punk - Get Lucky"},
+			want: "Daft Punk - Get Lucky",
+		},
+		{
 			meta: TrackMeta{Title: "Get Lucky", Source: "DaftPunkVEVO"},
 			want: "DaftPunkVEVO - Get Lucky",
+		},
+		{
+			meta: TrackMeta{Title: "Just A Title"},
+			want: "Just A Title",
 		},
 		{
 			meta: TrackMeta{Artist: "AC/DC", Track: "Back In Black?"},
@@ -25,8 +33,8 @@ func TestFormatMusicFileName(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		if got := FormatMusicFileName(tc.meta); got != tc.want {
-			t.Fatalf("FormatMusicFileName(%+v)=%q want %q", tc.meta, got, tc.want)
+		if got := FormatFileName(tc.meta); got != tc.want {
+			t.Fatalf("FormatFileName(%+v)=%q want %q", tc.meta, got, tc.want)
 		}
 	}
 }

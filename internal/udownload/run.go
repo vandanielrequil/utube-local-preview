@@ -88,8 +88,7 @@ func Run(opts Options) (runErr error) {
 			}
 			musicDir := filepath.Join(musicRoot, filepath.Base(playlistDir))
 			for _, videoPath := range files {
-				baseName := musicBaseName(downloader, videoURLFromDownloaded(videoPath))
-				if _, err := extractor.ExtractMP3(videoPath, musicDir, baseName); err != nil {
+				if err := extractOne(downloader, extractor, videoPath, musicDir); err != nil {
 					fmt.Fprintf(os.Stderr, "error: %v\n", err)
 					failed = append(failed, videoPath+" (mp3)")
 				}
@@ -107,8 +106,7 @@ func Run(opts Options) (runErr error) {
 		if extractor == nil {
 			continue
 		}
-		baseName := musicBaseName(downloader, entry.URL)
-		if _, err := extractor.ExtractMP3(videoPath, musicRoot, baseName); err != nil {
+		if err := extractOne(downloader, extractor, videoPath, musicRoot); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			failed = append(failed, entry.URL+" (mp3)")
 		}
@@ -121,18 +119,46 @@ func Run(opts Options) (runErr error) {
 	return nil
 }
 
-func musicBaseName(downloader *youtube.Downloader, videoURL string) string {
-	meta, err := downloader.TrackMetaForURL(videoURL)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "warn: metadata: %v\n", err)
-		return ""
+func extractOne(downloader *youtube.Downloader, extractor *audio.Extractor, videoPath, musicDir string) error {
+	// Prefer URL from 11-char id filename; after rename use basename as title fallback only.
+	base := strings.TrimSuffix(filepath.Base(videoPath), filepath.Ext(videoPath))
+	videoURL := ""
+	if len(base) == 11 {
+		videoURL = "https://www.youtube.com/watch?v=" + base
 	}
-	name := youtube.FormatMusicFileName(meta)
-	fmt.Println("music name:", name)
-	return name
+	meta := downloader.ResolveTrackMeta(videoPath, videoURL)
+	if videoURL == "" {
+		// File already renamed; meta lookup by URL may fail — use filename parts.
+		if meta.Title == "" && meta.Track == "" {
+			if left, right, ok := splitName(base); ok {
+				meta.Artist, meta.Title = left, right
+			} else {
+				meta.Title = base
+			}
+		}
+	}
+
+	artist, title := meta.ResolvedNames()
+	baseName := youtube.FormatFileName(meta)
+	fmt.Println("music name:", baseName)
+	_, err := extractor.ExtractMP3(videoPath, musicDir, baseName, audio.Tags{
+		Artist: artist,
+		Title:  title,
+		Album:  meta.Album,
+		Year:   meta.Year,
+	})
+	return err
 }
 
-func videoURLFromDownloaded(videoPath string) string {
-	id := strings.TrimSuffix(filepath.Base(videoPath), filepath.Ext(videoPath))
-	return "https://www.youtube.com/watch?v=" + id
+func splitName(name string) (string, string, bool) {
+	parts := strings.SplitN(name, " - ", 2)
+	if len(parts) != 2 {
+		return "", "", false
+	}
+	left := strings.TrimSpace(parts[0])
+	right := strings.TrimSpace(parts[1])
+	if left == "" || right == "" {
+		return "", "", false
+	}
+	return left, right, true
 }

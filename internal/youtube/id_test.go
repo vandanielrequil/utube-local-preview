@@ -22,6 +22,14 @@ func TestVideoID(t *testing.T) {
 	}
 }
 
+func TestPlaylistID(t *testing.T) {
+	got := PlaylistID("https://www.youtube.com/watch?v=oOf7ZgCbvRs&list=PLOD71PkX4QwU4MAOqNA4iPxZ_Abf2Sksp")
+	want := "PLOD71PkX4QwU4MAOqNA4iPxZ_Abf2Sksp"
+	if got != want {
+		t.Fatalf("PlaylistID=%q want %q", got, want)
+	}
+}
+
 func TestNormalizeURLStripsPlaylist(t *testing.T) {
 	got := NormalizeURL("https://www.youtube.com/watch?v=OnzkhQsmSag&list=RDOnzkhQsmSag&start_radio=1", false)
 	want := "https://www.youtube.com/watch?v=OnzkhQsmSag"
@@ -30,11 +38,12 @@ func TestNormalizeURLStripsPlaylist(t *testing.T) {
 	}
 }
 
-func TestNormalizeURLKeepsPlaylist(t *testing.T) {
-	raw := "https://www.youtube.com/watch?v=OnzkhQsmSag&list=RDOnzkhQsmSag&start_radio=1"
+func TestNormalizeURLPlaylistCanonical(t *testing.T) {
+	raw := "https://www.youtube.com/watch?v=oOf7ZgCbvRs&list=PLOD71PkX4QwU4MAOqNA4iPxZ_Abf2Sksp"
 	got := NormalizeURL(raw, true)
-	if got != raw {
-		t.Fatalf("NormalizeURL playlist mode changed url: %q", got)
+	want := "https://www.youtube.com/playlist?list=PLOD71PkX4QwU4MAOqNA4iPxZ_Abf2Sksp"
+	if got != want {
+		t.Fatalf("NormalizeURL playlist=%q want %q", got, want)
 	}
 }
 

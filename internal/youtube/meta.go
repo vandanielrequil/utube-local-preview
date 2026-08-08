@@ -3,19 +3,69 @@ package youtube
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 )
 
-// TrackMeta holds naming fields for a music file.
+// TrackMeta holds naming and ID3 fields for a music file.
 type TrackMeta struct {
 	Artist string
 	Track  string
 	Title  string
-	Source string // uploader/channel fallback info
+	Album  string
+	Year   string
+	Source string // uploader/channel fallback
 }
 
-// TrackMetaForURL asks yt-dlp for artist/track metadata (no download).
+// ResolvedNames returns artist/title for filenames and tags.
+// Empty strings mean the field is unknown (no "Unknown *" placeholders).
+func (m TrackMeta) ResolvedNames() (artist, title string) {
+	artist = strings.TrimSpace(m.Artist)
+	title = strings.TrimSpace(m.Track)
+
+	if title == "" {
+		raw := strings.TrimSpace(m.Title)
+		if left, right, ok := splitArtistTrack(raw); ok {
+			if artist == "" || strings.EqualFold(artist, left) {
+				artist = left
+			}
+			title = right
+		} else {
+			title = raw
+		}
+	}
+
+	if artist == "" {
+		artist = strings.TrimSpace(m.Source)
+	}
+	return artist, title
+}
+
+// FormatFileName builds "Artist - Title", or just Title/Artist if one side is missing.
+func FormatFileName(meta TrackMeta) string {
+	artist, title := meta.ResolvedNames()
+	switch {
+	case artist != "" && title != "":
+		return SanitizeFileName(artist + " - " + title)
+	case title != "":
+		return SanitizeFileName(title)
+	case artist != "":
+		return SanitizeFileName(artist)
+	default:
+		return "unknown"
+	}
+}
+
+// FormatMusicFileName is an alias of FormatFileName.
+func FormatMusicFileName(meta TrackMeta) string {
+	return FormatFileName(meta)
+}
+
+// TrackMetaForURL asks yt-dlp for metadata without downloading.
+// Non-zero exit is tolerated when title/artist lines are still present.
 func (d *Downloader) TrackMetaForURL(videoURL string) (TrackMeta, error) {
 	videoURL = NormalizeURL(videoURL, false)
 	cmd := exec.Command(d.YTDLP,
@@ -26,58 +76,69 @@ func (d *Downloader) TrackMetaForURL(videoURL string) (TrackMeta, error) {
 		"--print", "%(title)s",
 		"--print", "%(uploader)s",
 		"--print", "%(channel)s",
+		"--print", "%(album)s",
+		"--print", "%(release_year)s",
+		"--print", "%(upload_date)s",
 		videoURL,
 	)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return TrackMeta{}, fmt.Errorf("yt-dlp metadata failed for %q: %w: %s", videoURL, err, strings.TrimSpace(stderr.String()))
-	}
+	runErr := cmd.Run()
 
 	lines := strings.Split(strings.ReplaceAll(stdout.String(), "\r\n", "\n"), "\n")
-	for len(lines) < 5 {
+	for len(lines) < 8 {
 		lines = append(lines, "")
 	}
-	clean := func(s string) string {
-		s = strings.TrimSpace(s)
-		if s == "" || strings.EqualFold(s, "NA") || strings.EqualFold(s, "null") {
-			return ""
+
+	year := cleanMetaValue(lines[6])
+	if year == "" {
+		if date := cleanMetaValue(lines[7]); len(date) >= 4 {
+			year = date[:4]
 		}
-		return s
+	}
+	if _, err := strconv.Atoi(year); err != nil {
+		year = ""
 	}
 
-	return TrackMeta{
-		Artist: clean(lines[0]),
-		Track:  clean(lines[1]),
-		Title:  clean(lines[2]),
-		Source: firstNonEmpty(clean(lines[3]), clean(lines[4])),
-	}, nil
+	meta := TrackMeta{
+		Artist: cleanMetaValue(lines[0]),
+		Track:  cleanMetaValue(lines[1]),
+		Title:  cleanMetaValue(lines[2]),
+		Source: firstNonEmpty(cleanMetaValue(lines[3]), cleanMetaValue(lines[4])),
+		Album:  cleanMetaValue(lines[5]),
+		Year:   year,
+	}
+	if meta.Title == "" && meta.Track == "" && meta.Artist == "" {
+		if runErr != nil {
+			return TrackMeta{}, fmt.Errorf("yt-dlp metadata failed for %q: %w: %s", videoURL, runErr, strings.TrimSpace(stderr.String()))
+		}
+		return TrackMeta{}, fmt.Errorf("yt-dlp metadata empty for %q", videoURL)
+	}
+	return meta, nil
 }
 
-// FormatMusicFileName builds "Artist - Track" suitable as a file base name.
-func FormatMusicFileName(meta TrackMeta) string {
-	artist := strings.TrimSpace(meta.Artist)
-	track := firstNonEmpty(strings.TrimSpace(meta.Track), strings.TrimSpace(meta.Title))
+// ResolveTrackMeta loads naming/tags for a video URL (no sidecar files).
+func (d *Downloader) ResolveTrackMeta(videoPath, videoURL string) TrackMeta {
+	meta, err := d.TrackMetaForURL(videoURL)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warn: metadata: %v\n", err)
+		base := strings.TrimSuffix(filepath.Base(videoPath), filepath.Ext(videoPath))
+		return TrackMeta{Title: base}
+	}
+	return meta
+}
 
-	if artist == "" && track != "" {
-		if left, right, ok := splitArtistTrack(track); ok {
-			artist, track = left, right
-		}
+func cleanMetaValue(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" || strings.EqualFold(s, "NA") || strings.EqualFold(s, "null") || strings.EqualFold(s, "none") {
+		return ""
 	}
-	if artist == "" {
-		artist = firstNonEmpty(meta.Source, "Unknown Artist")
-	}
-	if track == "" {
-		track = "Unknown Title"
-	}
-
-	return SanitizeFileName(artist + " - " + track)
+	return s
 }
 
 func splitArtistTrack(title string) (string, string, bool) {
-	// Prefer " - " (common YouTube music naming).
 	parts := strings.SplitN(title, " - ", 2)
 	if len(parts) != 2 {
 		return "", "", false

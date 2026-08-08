@@ -8,6 +8,14 @@ import (
 	"strings"
 )
 
+// Tags are optional ID3 fields written into the mp3.
+type Tags struct {
+	Artist string
+	Title  string
+	Album  string
+	Year   string
+}
+
 // Extractor pulls audio tracks into mp3 files using system ffmpeg
 // (same external-tool style as all-for-one-drive/internal/video-converter).
 type Extractor struct {
@@ -22,10 +30,10 @@ func NewExtractor() (*Extractor, error) {
 	return &Extractor{FFmpeg: ffmpeg}, nil
 }
 
-// ExtractMP3 writes outputDir/<baseName>.mp3 from a video/audio source.
+// ExtractMP3 writes outputDir/<baseName>.mp3 and fills ID3 tags when present.
 // If baseName is empty, the source file base name is used.
 // Existing non-empty mp3 files are skipped.
-func (e *Extractor) ExtractMP3(sourcePath, outputDir, baseName string) (string, error) {
+func (e *Extractor) ExtractMP3(sourcePath, outputDir, baseName string, tags Tags) (string, error) {
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return "", fmt.Errorf("create music dir: %w", err)
 	}
@@ -47,12 +55,28 @@ func (e *Extractor) ExtractMP3(sourcePath, outputDir, baseName string) (string, 
 		"-y",
 		"-i", sourcePath,
 		"-vn",
+		"-map_metadata", "-1",
 		"-c:a", "libmp3lame",
 		"-q:a", "2",
-		outputPath,
+		"-id3v2_version", "3",
 	}
+	if tags.Title != "" {
+		args = append(args, "-metadata", "title="+tags.Title)
+	}
+	if tags.Artist != "" {
+		args = append(args, "-metadata", "artist="+tags.Artist)
+	}
+	if tags.Album != "" {
+		args = append(args, "-metadata", "album="+tags.Album)
+	}
+	if tags.Year != "" {
+		args = append(args, "-metadata", "date="+tags.Year)
+	}
+	args = append(args, outputPath)
 
 	fmt.Fprintf(os.Stderr, "ffmpeg: %s -> %s\n", sourcePath, outputPath)
+	fmt.Fprintf(os.Stderr, "tags: artist=%q title=%q album=%q year=%q\n", tags.Artist, tags.Title, tags.Album, tags.Year)
+
 	cmd := exec.Command(e.FFmpeg, args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

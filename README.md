@@ -12,7 +12,9 @@ Download YouTube media locally for offline preview.
 Place `u-links.txt` next to the binary. Links may be separated by spaces or newlines.
 
 Prefix a URL with `PLAYLIST_` to download the whole playlist/mix into
-`u-downloads/<playlist title>/` (or today's date if the title is unavailable).
+`u-downloads/<playlist title>/` (fallback: playlist id, then today's date).
+`watch?v=...&list=...` is rewritten to `playlist?list=...`. If YouTube refuses the
+playlist (private/403), the run fails instead of quietly saving one video.
 Without the prefix, only the single video is downloaded (playlist params are ignored).
 
 ```text
@@ -23,7 +25,8 @@ PLAYLIST_https://www.youtube.com/playlist?list=PLxxxxxxxx
 ```
 
 Music mode mirrors that layout under `u-downloads/music/` (and `u-downloads/music/<playlist>/`).
-MP3 files are named `Artist - Track.mp3` from yt-dlp metadata.
+Media files are named `Artist - Title` (or just the title). MP3s get ID3 tags inside the file
+(`title`, `artist`, `album`, `date`) — no sidecar `.info.json` files.
 
 Each run writes a fresh log next to the binary: `u-downloader.log` / `u-downloader-music.log`
 (all Go + yt-dlp/ffmpeg output, truncated on start).

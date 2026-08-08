@@ -12,12 +12,10 @@ import (
 var (
 	mu         sync.Mutex
 	logFile    *os.File
-	outW       *os.File
-	errW       *os.File
+	pipeW      *os.File
 	origStdout *os.File
 	origStderr *os.File
 	copyDone   chan struct{}
-	logPath    string
 )
 
 // Init creates/truncates <exeName>.log next to the binary and tees all
@@ -33,11 +31,11 @@ func Init() error {
 	}
 
 	baseName := strings.TrimSuffix(filepath.Base(executable), filepath.Ext(executable))
-	logPath = filepath.Join(filepath.Dir(executable), baseName+".log")
+	path := filepath.Join(filepath.Dir(executable), baseName+".log")
 
-	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
 	if err != nil {
-		return fmt.Errorf("open log file %q: %w", logPath, err)
+		return fmt.Errorf("open log file %q: %w", path, err)
 	}
 
 	r, w, err := os.Pipe()
@@ -48,8 +46,7 @@ func Init() error {
 
 	mu.Lock()
 	logFile = f
-	outW = w
-	errW = w
+	pipeW = w
 	origStdout = os.Stdout
 	origStderr = os.Stderr
 	os.Stdout = w
@@ -63,14 +60,14 @@ func Init() error {
 		_ = r.Close()
 	}()
 
-	fmt.Printf("log: %s\n", logPath)
+	fmt.Printf("log: %s\n", path)
 	return nil
 }
 
 // Close flushes the tee and restores stdout/stderr.
 func Close() error {
 	mu.Lock()
-	w := outW
+	w := pipeW
 	f := logFile
 	stdout := origStdout
 	stderr := origStderr
@@ -94,8 +91,7 @@ func Close() error {
 	}
 
 	mu.Lock()
-	outW = nil
-	errW = nil
+	pipeW = nil
 	logFile = nil
 	origStdout = nil
 	origStderr = nil
@@ -106,11 +102,4 @@ func Close() error {
 		return f.Close()
 	}
 	return nil
-}
-
-// Path returns the active log file path (empty before Init).
-func Path() string {
-	mu.Lock()
-	defer mu.Unlock()
-	return logPath
 }
