@@ -27,6 +27,15 @@ go.work.sum
 # env file
 .env
 
+# local download workspace
+u-downloads/
+u-links.txt
+u-downloader
+u-downloader.exe
+u-downloader-music
+u-downloader-music.exe
+*.log
+
 # Editor/IDE
 # .idea/
 # .vscode/
